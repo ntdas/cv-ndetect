@@ -1,0 +1,17 @@
+# Title: Summary
+# No more than 50 chars.   
+
+# Remember blank line between title and body.  
+
+# Body: Describe what has been change and why was it changed  
+# 72 char#
+
+# Contributor format: <name> <email>  
+
+# 1.Separate subject from body with a blank line  
+# 2. Limit the subject line to 50 characters    
+# 3. Capitalize the subject line  
+# 4. Do not end the subject line with a period  
+# 5. Wrap the body at 72 characters  
+# 6. Describe what has been change and why was it changed  
+# 7. Include contributors if needed  
