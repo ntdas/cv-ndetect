@@ -137,8 +137,9 @@ def soft_nms(boxes, score, threshold=0.5):
         
         # Re-calculate box score base on iou
         for j in range(boxes.shape[0]):
-            iou = intersect_area(D[i,:], boxes[j,:])
-            score[j] *= 1-iou
+            iou_score = iou(D[i,:], boxes[j,:])
+            score[j] *= 1-iou_score
+#             score[j] *= np.exp(-0.5*(iou_score*iou_score))
     
     # Remove all box with score lower than threshold
     index = np.where(S < threshold)[0]
@@ -188,7 +189,12 @@ def get_fp(im, clf, bbox, scale=1.5, winSize=(16,32), step=8, orientations=9, pi
                 # By default it's a false positive
                 flag = True
                 # Get window position
-                pbox = np.array([x, x+winSize[0], y, y+winSize[1]]) * scale**k
+                left = np.int(x*scale**k)
+                right = np.int((x+winSize[0]-1)*scale**k)
+                top = np.int(y*scale**k)
+                bottom = np.int((y+winSize[1]-1)*scale**k)
+                
+                pbox = np.array([left, right, top, bottom])
                 pbox = pbox.astype(np.int)
 
                 # Calculate intersect area between window and bounding box
@@ -200,5 +206,6 @@ def get_fp(im, clf, bbox, scale=1.5, winSize=(16,32), step=8, orientations=9, pi
                         flag = False
                         break
                 if flag:
-                    yield (fd, prob[0,1])
+#                     yield (fd, prob[0,1])
+                    yield (fd, prob[0,1], window)
         
