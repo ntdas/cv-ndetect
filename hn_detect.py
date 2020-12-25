@@ -137,8 +137,8 @@ def soft_nms(boxes, score, threshold=0.5):
         
         # Re-calculate box score base on iou
         for j in range(boxes.shape[0]):
-            iou = intersect_area(D[i,:], boxes[j,:])
-            score[j] *= 1-iou
+            iou_score = iou(D[i,:], boxes[j,:])
+            score[j] *= 1-iou_score
     
     # Remove all box with score lower than threshold
     index = np.where(S < threshold)[0]
@@ -201,4 +201,67 @@ def get_fp(im, clf, bbox, scale=1.5, winSize=(16,32), step=8, orientations=9, pi
                         break
                 if flag:
                     yield (fd, prob[0,1])
-        
+
+def get_predicted_bbx(path, name, w=16, h=32, scale=1.2):
+    bbx, pred = [], []
+    im = hn_detect.pre_process(test_path, name)
+
+    for i, im_rsz in enumerate(hn_detect.pyramid(im, scale=scale, minSize=(16,32))):
+        for (x, y, im_window) in hn_detect.sliding_window(im_rsz, step=8):
+            if (im_window.shape[0]<h or im_window.shape[1]<w):
+                continue
+            feature = hog(im_window, orientations=9, pixels_per_cell=(4,4), cells_per_block=(2,2))
+            feature = feature.reshape(1,-1)
+            pred_proba = clf.predict_proba(feature)
+
+            if pred_proba[0,1] > 0.8:
+                x_min = np.int(x*(scale**i))
+                x_max = np.int((x+w-1)*(scale**i))
+                y_min = np.int(y*(scale**i))
+                y_max = np.int((y+h-1)*(scale**i))
+                coor = np.array([x_min, x_max, y_min, y_max])
+                pred_proba = pred_proba[0,1]
+                bbx.append(coor)
+                pred.append(pred_proba)
+
+    bbx = np.array(bbx)
+    pred = np.array(pred)
+    box, score = hn_detect.soft_nms(bbx, pred, threshold=0.9)
+    
+    return box, score
+
+def scoring(path, threshold):
+    names = os.listdir(path)
+    precision = []
+    recall = []
+
+    for k, name in enumerate(names):
+        GT = get_ground_truth(path, name)
+        pred, score = get_predicted_bbx(path, name)
+
+        TP, FP, FN = 0, 0, 0
+
+        for i in range(GT.shape[0]):
+            for j in range(pred.shape[0]):
+                if hn_detect.iou(GT[i,:], pred[j,:])>threshold:
+                    TP += 1
+                else:
+                    FP += 1
+        if TP > GT.shape[0]: FN = 0
+        else: FN = GT.shape[0] - TP
+
+        if TP+FP == 0:
+            pass
+        else:
+            p = TP/(TP+FP)  # precision
+            r = TP/(TP+FN)  # recall
+            precision.append(p)
+            recall.append(r)
+            print(k, p, r)
+
+    precision = np.array(precision)
+    recall = np.array(recall)
+
+    AP = np.sum((recall[i+1] - recall[i]) * precision[i])
+
+    return AP
