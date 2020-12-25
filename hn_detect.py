@@ -2,8 +2,10 @@ import numpy as np
 import pandas as pd
 import os
 import cv2
+from sklearn.metrics import average_precision_score
 from skimage.feature import hog
 import pickle
+from tqdm import tqdm
 
 def sliding_window(im, step, winSize=(16,32)):
     """
@@ -147,6 +149,64 @@ def soft_nms(boxes, score, threshold=0.5):
     
     return D,S
 
+
+# def hard_nms(boxes, overlapThresh=0.8):
+#     	# if there are no boxes, return an empty list
+# 	if len(boxes) == 0:
+# 		return []
+# 	# initialize the list of picked indexes
+# 	pick = []
+# 	# grab the coordinates of the bounding boxes
+# 	x1 = boxes[:,0]
+# 	x2 = boxes[:,1]
+# 	y1 = boxes[:,2]
+# 	y2 = boxes[:,3]
+# 	# compute the area of the bounding boxes and sort the bounding
+# 	# boxes by the bottom-right y-coordinate of the bounding box
+# 	area = (x2 - x1 + 1) * (y2 - y1 + 1)
+# 	idxs = np.argsort(y2)
+#     # keep looping while some indexes still remain in the indexes
+# 	# list
+# 	while len(idxs) > 0:
+# 		# grab the last index in the indexes list, add the index
+# 		# value to the list of picked indexes, then initialize
+# 		# the suppression list (i.e. indexes that will be deleted)
+# 		# using the last index
+# 		last = len(idxs) - 1
+# 		i = idxs[last]
+# 		pick.append(i)
+# 		suppress = [last]
+#         		# loop over all indexes in the indexes list
+# 		for pos in range(0, last):
+# 			# grab the current index
+# 			j = idxs[pos]
+# 			# find the largest (x, y) coordinates for the start of
+# 			# the bounding box and the smallest (x, y) coordinates
+# 			# for the end of the bounding box
+# 			xx1 = max(x1[i], x1[j])
+# 			yy1 = max(y1[i], y1[j])
+# 			xx2 = min(x2[i], x2[j])
+# 			yy2 = min(y2[i], y2[j])
+# 			# compute the width and height of the bounding box
+# 			w = max(0, xx2 - xx1 + 1)
+# 			h = max(0, yy2 - yy1 + 1)
+# 			# compute the ratio of overlap between the computed
+# 			# bounding box and the bounding box in the area list
+# 			overlap = float(w * h) / area[j]
+# 			# if there is sufficient overlap, suppress the
+# 			# current bounding box
+# 			if overlap > overlapThresh:
+# 				suppress.append(pos)
+# 		# delete all indexes from the index list that are in the
+# 		# suppression list
+# 		idxs = np.delete(idxs, suppress)
+# 	# return only the bounding boxes that were picked
+#     print(boxes.shape)
+# 	return boxes[pick]
+
+
+
+
 def get_fp(im, clf, bbox, scale=1.5, winSize=(16,32), step=8, orientations=9, pixels_per_cell=(4,4), cells_per_block=(2,2), threshold=0.5):
     """
     Perform pyramid scaling and sliding window to find all false positive samples in an image.
@@ -202,12 +262,24 @@ def get_fp(im, clf, bbox, scale=1.5, winSize=(16,32), step=8, orientations=9, pi
                 if flag:
                     yield (fd, prob[0,1])
 
-def get_predicted_bbx(path, name, w=16, h=32, scale=1.2):
-    bbx, pred = [], []
-    im = hn_detect.pre_process(test_path, name)
+def get_predicted_bbx(path, name, clf, w=16, h=32, scale=2):
+    """
+    Get predicted bounding boxes for an image in order: [x_min, x_max, y_min, y_max]
 
-    for i, im_rsz in enumerate(hn_detect.pyramid(im, scale=scale, minSize=(16,32))):
-        for (x, y, im_window) in hn_detect.sliding_window(im_rsz, step=8):
+    @INPUT:
+    - path, name: identify the image
+    - clf: Classifier to predict bounding boxes
+    - w, h: width and height of the slicing window
+    - scale: scale in pyramid algorithm
+    @OUTPUT:
+    - box: an array contains the bounding boxes coordinations, with every row as the coordinations of a box
+    - score: confidence of the model related to predict bounding boxes
+    """
+    bbx, pred = [], []
+    im = pre_process(path, name)
+
+    for i, im_rsz in enumerate(pyramid(im, scale=scale, minSize=(16,32))):
+        for (x, y, im_window) in sliding_window(im_rsz, step=8):
             if (im_window.shape[0]<h or im_window.shape[1]<w):
                 continue
             feature = hog(im_window, orientations=9, pixels_per_cell=(4,4), cells_per_block=(2,2))
@@ -226,42 +298,79 @@ def get_predicted_bbx(path, name, w=16, h=32, scale=1.2):
 
     bbx = np.array(bbx)
     pred = np.array(pred)
-    box, score = hn_detect.soft_nms(bbx, pred, threshold=0.9)
+
+    box, score = soft_nms(bbx, pred, threshold=0.5)
     
     return box, score
 
-def scoring(path, threshold):
+def get_ground_truth(path, name):
+
+    """
+    Get ground truth of an image
+    
+    @INPUT:
+    - path: directory containing the image
+    - name: the image's name 
+    @OUTPUT:
+    - bounding box (ground truth of the image)
+    """
+
+    labels = pd.read_csv('./label_no_png.csv')
+    i_th = np.int(name.split('.')[0])
+    
+    x_min = labels[labels['name']==i_th]['left']
+    x_max = x_min + labels[labels['name']==i_th]['width']
+    y_min = labels[labels['name']==i_th]['top']
+    y_max = y_min + labels[labels['name']==i_th]['height']
+
+    bbx = np.vstack([x_min, x_max, y_min, y_max]).T
+
+    return bbx
+
+def scoring(clf, path, threshold):
+    """
+    Scoring the model
+    @INPUT:
+    - clf: classifier
+    - path: the folder containing images to score
+    - threshold: if iou<threshold: this bounding box is false positive
+    @OUTPUT:
+    - AP: average precision
+    """
     names = os.listdir(path)
-    precision = []
-    recall = []
+    y_test = np.array([])   # y_true
+    SC = np.array([])       # score
 
-    for k, name in enumerate(names):
+    for name in tqdm(names):
         GT = get_ground_truth(path, name)
-        pred, score = get_predicted_bbx(path, name)
+        pred, score = get_predicted_bbx(path, name, clf,)
 
-        TP, FP, FN = 0, 0, 0
-
+        y_true = np.zeros(len(score))
         for i in range(GT.shape[0]):
-            for j in range(pred.shape[0]):
-                if hn_detect.iou(GT[i,:], pred[j,:])>threshold:
-                    TP += 1
-                else:
-                    FP += 1
-        if TP > GT.shape[0]: FN = 0
-        else: FN = GT.shape[0] - TP
+            if pred.shape[0]:
+                for j in range(pred.shape[0]):
+                    if iou(GT[i,:], pred[j,:])>threshold:
+                        y_true[j] = 1
 
-        if TP+FP == 0:
-            pass
-        else:
-            p = TP/(TP+FP)  # precision
-            r = TP/(TP+FN)  # recall
-            precision.append(p)
-            recall.append(r)
-            print(k, p, r)
+        y_test = np.concatenate((y_test, y_true))
+        SC = np.concatenate((SC, score))
 
-    precision = np.array(precision)
-    recall = np.array(recall)
-
-    AP = np.sum((recall[i+1] - recall[i]) * precision[i])
+    AP = average_precision_score(y_test, SC)
 
     return AP
+
+def inference(path, new_path, clf):
+    if not(os.path.exists(new_path)):
+        os.mkdir(new_path)
+
+    names = os.listdir(path)
+
+    for name in names:
+        box, score = get_predicted_bbx(path, name, clf, w=16, h=32, scale=2)
+        box = box.astype(int)
+        img = cv2.imread(os.path.join(path, name))
+        for i in range(score.shape[0]):
+            cv2.rectangle(img, (box[i,0], box[i,2]), (box[i,1], box[i,3]), (20, 200, 200), 1)
+        cv2.imwrite(os.path.join(new_path, name), img)
+
+    return None
