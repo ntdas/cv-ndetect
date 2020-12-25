@@ -248,7 +248,12 @@ def get_fp(im, clf, bbox, scale=1.5, winSize=(16,32), step=8, orientations=9, pi
                 # By default it's a false positive
                 flag = True
                 # Get window position
-                pbox = np.array([x, x+winSize[0], y, y+winSize[1]]) * scale**k
+                left=np.int(x*scale**k)
+                right = np.int((x+winSize[0]-1)*scale**k)
+                top = np.int(y*scale**k)
+                bottom = np.int((y+winSize[1]-1)*scale**k)
+                
+                pbox = np.array([left, right, top, bottom])
                 pbox = pbox.astype(np.int)
 
                 # Calculate intersect area between window and bounding box
@@ -260,7 +265,7 @@ def get_fp(im, clf, bbox, scale=1.5, winSize=(16,32), step=8, orientations=9, pi
                         flag = False
                         break
                 if flag:
-                    yield (fd, prob[0,1])
+                    yield (fd, prob[0,1], window)
 
 def get_predicted_bbx(path, name, clf, w=16, h=32, scale=2):
     """
@@ -341,9 +346,9 @@ def scoring(clf, path, threshold):
     y_test = np.array([])   # y_true
     SC = np.array([])       # score
 
-    for name in tqdm(names):
+    for name in names:
         GT = get_ground_truth(path, name)
-        pred, score = get_predicted_bbx(path, name, clf,)
+        pred, score = get_predicted_bbx(path, name, clf)
 
         y_true = np.zeros(len(score))
         for i in range(GT.shape[0]):
