@@ -1,1 +1,5 @@
 .ipynb_checkpoints/
+__pycache__/
+*.orig
+16x32/
+!model_*
