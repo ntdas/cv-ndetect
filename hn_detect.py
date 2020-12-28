@@ -116,6 +116,9 @@ def soft_nms(boxes, score, threshold=0.5):
     @OUTPUT:
         - D: suppressed bounding box
         - S: score for each box
+    
+    References:
+    [1] Navaneeth Bodla, Brahat Singh, Rama Chellappa, Larry S. Davis: Improving Object Detection With One Line of Code
     """
     # Initialize output
     D = np.zeros(boxes.shape)
@@ -150,59 +153,70 @@ def soft_nms(boxes, score, threshold=0.5):
     return D,S
 
 
-# def hard_nms(boxes, overlapThresh=0.8):
-#     	# if there are no boxes, return an empty list
-# 	if len(boxes) == 0:
-# 		return []
-# 	# initialize the list of picked indexes
-# 	pick = []
-# 	# grab the coordinates of the bounding boxes
-# 	x1 = boxes[:,0]
-# 	x2 = boxes[:,1]
-# 	y1 = boxes[:,2]
-# 	y2 = boxes[:,3]
-# 	# compute the area of the bounding boxes and sort the bounding
-# 	# boxes by the bottom-right y-coordinate of the bounding box
-# 	area = (x2 - x1 + 1) * (y2 - y1 + 1)
-# 	idxs = np.argsort(y2)
-#     # keep looping while some indexes still remain in the indexes
-# 	# list
-# 	while len(idxs) > 0:
-# 		# grab the last index in the indexes list, add the index
-# 		# value to the list of picked indexes, then initialize
-# 		# the suppression list (i.e. indexes that will be deleted)
-# 		# using the last index
-# 		last = len(idxs) - 1
-# 		i = idxs[last]
-# 		pick.append(i)
-# 		suppress = [last]
-#         		# loop over all indexes in the indexes list
-# 		for pos in range(0, last):
-# 			# grab the current index
-# 			j = idxs[pos]
-# 			# find the largest (x, y) coordinates for the start of
-# 			# the bounding box and the smallest (x, y) coordinates
-# 			# for the end of the bounding box
-# 			xx1 = max(x1[i], x1[j])
-# 			yy1 = max(y1[i], y1[j])
-# 			xx2 = min(x2[i], x2[j])
-# 			yy2 = min(y2[i], y2[j])
-# 			# compute the width and height of the bounding box
-# 			w = max(0, xx2 - xx1 + 1)
-# 			h = max(0, yy2 - yy1 + 1)
-# 			# compute the ratio of overlap between the computed
-# 			# bounding box and the bounding box in the area list
-# 			overlap = float(w * h) / area[j]
-# 			# if there is sufficient overlap, suppress the
-# 			# current bounding box
-# 			if overlap > overlapThresh:
-# 				suppress.append(pos)
-# 		# delete all indexes from the index list that are in the
-# 		# suppression list
-# 		idxs = np.delete(idxs, suppress)
-# 	# return only the bounding boxes that were picked
-#     print(boxes.shape)
-# 	return boxes[pick]
+def hard_nms(boxes, score, overlapThresh=0.8):
+    """
+    Hard Non-Maximal Suppression
+    @INPUT:
+        - boxes: predicted bounding box. An array with columns are: [xmin, xmax, ymin, ymax]
+        - score: score of each box
+        - overlapThreshold: Overlapping area threshold to decide whether or not two boxes are box for the same object
+    @OUTPUT:
+        - boxes: Suppressed bounding box
+    
+    References:
+    [1] https://www.pyimagesearch.com/2014/11/17/non-maximum-suppression-object-detection-python/
+    """
+    # if there are no boxes, return an empty list
+    if len(boxes) == 0:
+        return []
+    # initialize the list of picked indexes
+    pick = []
+    # grab the coordinates of the bounding boxes
+    x1 = boxes[:,0]
+    x2 = boxes[:,1]
+    y1 = boxes[:,2]
+    y2 = boxes[:,3]
+    # compute the area of the bounding boxes and sort the bounding
+    # boxes by the bottom-right y-coordinate of the bounding box
+    area = (x2 - x1 + 1) * (y2 - y1 + 1)
+    idxs = np.argsort(y2)
+    # keep looping while some indexes still remain in the indexes
+    # list
+    while len(idxs) > 0:
+        # grab the last index in the indexes list, add the index
+        # value to the list of picked indexes, then initialize
+        # the suppression list (i.e. indexes that will be deleted)
+        # using the last index
+        last = len(idxs) - 1
+        i = idxs[last]
+        pick.append(i)
+        suppress = [last]
+        # loop over all indexes in the indexes list
+        for pos in range(0, last):
+            # grab the current index
+            j = idxs[pos]
+            # find the largest (x, y) coordinates for the start of
+            # the bounding box and the smallest (x, y) coordinates
+            # for the end of the bounding box
+            xx1 = max(x1[i], x1[j])
+            yy1 = max(y1[i], y1[j])
+            xx2 = min(x2[i], x2[j])
+            yy2 = min(y2[i], y2[j])
+            # compute the width and height of the bounding box
+            w = max(0, xx2 - xx1 + 1)
+            h = max(0, yy2 - yy1 + 1)
+            # compute the ratio of overlap between the computed
+            # bounding box and the bounding box in the area list
+            overlap = float(w * h) / area[j]
+            # if there is sufficient overlap, suppress the
+            # current bounding box
+            if overlap > overlapThresh:
+                suppress.append(pos)
+        # delete all indexes from the index list that are in the
+        # suppression list
+        idxs = np.delete(idxs, suppress)
+    # return only the bounding boxes that were picked
+    return boxes[pick], score[pick]
 
 
 
@@ -267,7 +281,7 @@ def get_fp(im, clf, bbox, scale=1.5, winSize=(16,32), step=8, orientations=9, pi
                 if flag:
                     yield (fd, prob[0,1], window)
 
-def get_predicted_bbx(path, name, clf, w=16, h=32, scale=2):
+def get_predicted_bbx(path, name, clf, w=16, h=32, scale=2, method='soft', threshold=0.5):
     """
     Get predicted bounding boxes for an image in order: [x_min, x_max, y_min, y_max]
 
@@ -289,9 +303,10 @@ def get_predicted_bbx(path, name, clf, w=16, h=32, scale=2):
                 continue
             feature = hog(im_window, orientations=9, pixels_per_cell=(4,4), cells_per_block=(2,2))
             feature = feature.reshape(1,-1)
+            predicted_class = clf.predict(feature)
             pred_proba = clf.predict_proba(feature)
 
-            if pred_proba[0,1] > 0.8:
+            if predicted_class:
                 x_min = np.int(x*(scale**i))
                 x_max = np.int((x+w-1)*(scale**i))
                 y_min = np.int(y*(scale**i))
@@ -304,11 +319,14 @@ def get_predicted_bbx(path, name, clf, w=16, h=32, scale=2):
     bbx = np.array(bbx)
     pred = np.array(pred)
 
-    box, score = soft_nms(bbx, pred, threshold=0.5)
+    if method == 'soft':
+        box, score = soft_nms(bbx, pred, threshold=threshold)
+    else:
+        box, score = hard_nms(bbx, pred, overlapThresh=threshold)
     
     return box, score
 
-def get_ground_truth(path, name):
+def get_ground_truth(labels):
 
     """
     Get ground truth of an image
@@ -316,28 +334,38 @@ def get_ground_truth(path, name):
     @INPUT:
     - path: directory containing the image
     - name: the image's name 
+    - labels: dataframe contains bounding boxes coordinate
     @OUTPUT:
-    - bounding box (ground truth of the image)
+    - bbx: bounding box (ground truth of the image): [xmin, xmax, ymin, ymax]
     """
 
-    labels = pd.read_csv('./label_no_png.csv')
-    i_th = np.int(name.split('.')[0])
+    # Find all digits in image
+    ndigits = len(labels)
     
-    x_min = labels[labels['name']==i_th]['left']
-    x_max = x_min + labels[labels['name']==i_th]['width']
-    y_min = labels[labels['name']==i_th]['top']
-    y_max = y_min + labels[labels['name']==i_th]['height']
+    # Initialize output
+    bbx = []
+    
+    for digit in range(ndigits):
+        x_min = labels['left'].values[digit]
+        x_max = x_min + labels['width'].values[digit] - 1
+        y_min = labels['top'].values[digit]
+        y_max = y_min + labels['height'].values[digit] - 1
 
-    bbx = np.vstack([x_min, x_max, y_min, y_max]).T
+        bbx = np.concatenate((bbx, [x_min, x_max, y_min, y_max]))
+    
+    # Reshape bbx to 
+    bbx = bbx.reshape(-1,4)
 
     return bbx
 
-def scoring(clf, path, threshold):
+def scoring(clf, path, df, nsamples = 1000, threshold=0.5):
     """
     Scoring the model
     @INPUT:
     - clf: classifier
     - path: the folder containing images to score
+    - df: dataframe contain ground truth bounding box coordinate
+    - nsamples: number of samples to calculate score
     - threshold: if iou<threshold: this bounding box is false positive
     @OUTPUT:
     - AP: average precision
@@ -345,24 +373,47 @@ def scoring(clf, path, threshold):
     names = os.listdir(path)
     y_test = np.array([])   # y_true
     SC = np.array([])       # score
-
-    for name in names:
-        GT = get_ground_truth(path, name)
+    
+    if nsamples >= len(names):
+        nsamples = len(names)
+        
+    # Counting total number of digits in images
+    count = 0
+    
+    # Loop all samples to calculate score
+    for name in tqdm(names[:nsamples]):
+        # Find ground truth bounding box in image
+        labels = df[df.name == name]
+        GT = get_ground_truth(labels)
+        
+        # Find all predicted box
         pred, score = get_predicted_bbx(path, name, clf)
-
+        
+        # Initialize array to check if predicted box is true positive or false positive
         y_true = np.zeros(len(score))
-        for i in range(GT.shape[0]):
-            if pred.shape[0]:
-                for j in range(pred.shape[0]):
-                    if iou(GT[i,:], pred[j,:])>threshold:
-                        y_true[j] = 1
-
+        
+        # Array to keep track of found ground truth box
+        flags = np.zeros(GT.shape[0])
+        
+        # Loop all predicted boxes
+        for i in range(len(score)):
+            # Loop all ground truth boxes
+            for j in range(GT.shape[0]):
+                # If overlap between two bounding boxes is greater than threshold
+                if iou(GT[j,:], pred[i,:])>threshold:
+                    # If this ground truth box is not found yet, assign it is found and this is true positive
+                    if not(flags[j]):
+                        y_true[i] = 1
+                        flags[j] = 1
+                        break
+        
+        count += GT.shape[0]
         y_test = np.concatenate((y_test, y_true))
         SC = np.concatenate((SC, score))
 
-    AP = average_precision_score(y_test, SC)
+#     AP = average_precision_score(y_test, SC)
 
-    return AP
+    return y_test, SC, count
 
 def inference(path, new_path, clf):
     if not(os.path.exists(new_path)):
